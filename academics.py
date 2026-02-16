@@ -244,64 +244,71 @@ def academics_page():
     )
 
     with tab_classes:
-        st.subheader("Classes by quarter")
+    st.subheader("Classes by quarter")
 
-        quarter = st.selectbox(
-            "Quarter",
-            ["Winter 2025", "Spring 2025", "Fall 2024"],
-            key="acad_quarter",
-        )
+    quarter_ui = st.selectbox(
+        "Quarter",
+        ["Winter 2025", "Spring 2025", "Fall 2024"],
+        key="acad_quarter",
+    )
 
-        courses_df = load_courses_from_db(major, quarter) if has_db else load_courses_df()
+    # Turn "Winter 2025" -> "Winter"
+    quarter_season = quarter_ui.split()[0].strip().title()
 
-        if courses_df is None or courses_df.empty:
-            st.info(f"No course data available for **{major}** in **{quarter}**.")
+    courses_df = load_courses_from_db(major, quarter_ui) if has_db else load_courses_df()
+
+    if courses_df is None or courses_df.empty:
+        st.info(f"No course data available for **{major}** in **{quarter_ui}**.")
+    else:
+        # CSV path: columns are lowercase and quarter is "Winter"
+        if "major" in courses_df.columns:
+            courses_df["major"] = courses_df["major"].astype(str).str.strip()
+            courses_df = courses_df[courses_df["major"] == major]
+
+        if "quarter" in courses_df.columns:
+            courses_df["quarter"] = courses_df["quarter"].astype(str).str.strip().str.title()
+
+            # Match either "Winter" or "Winter 2025"
+            courses_df = courses_df[
+                (courses_df["quarter"] == quarter_season) |
+                (courses_df["quarter"] == quarter_ui)
+            ]
+
+        if courses_df.empty:
+            st.info(f"No classes found for **{major}** in **{quarter_ui}**")
         else:
-            if 'major' in courses_df.columns:
-                courses_df = courses_df[courses_df['major'] == major]
-            
-            if 'quarter' in courses_df.columns:
-                courses_df = courses_df[courses_df['quarter'] == quarter]
+            # units might be strings like "1.0-4.0" -> convert safely
+            courses_df["units_num"] = pd.to_numeric(courses_df["units"], errors="coerce")
 
-            if courses_df.empty:
-                st.info(f"No classes found for **{major}** in **{quarter}**")
-            else:
-                stats = get_course_stats(courses_df)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Total courses", stats['total'])
-                col2.metric("🟢 Open", stats['open'])
-                col3.metric("🟡 Mixed", stats['mixed'])
-                col4.metric("🔴 Full", stats['full'])
+            stats = get_course_stats(courses_df.assign(units=courses_df["units_num"]))
 
-                st.markdown("---")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total courses", stats["total"])
+            col2.metric("🟢 Open", stats["open"])
+            col3.metric("🟡 Mixed", stats["mixed"])
+            col4.metric("🔴 Full", stats["full"])
 
-                with st.expander("🔍 Filter options"):
-                    filter_col1, filter_col2 = st.columns(2)
-                    with filter_col1:
-                        status_filter = st.multiselect(
-                            "Status",
-                            ["Open", "Mixed", "Full"],
-                            default=["Open", "Mixed", "Full"]
-                        )
-                    with filter_col2:
-                        if 'instructor' in courses_df.columns:
-                            instructors = courses_df['instructor'].dropna().unique()
-                            instructor_filter = st.multiselect("Instructor", instructors)
-                            if instructor_filter:
-                                courses_df = courses_df[courses_df['instructor'].isin(instructor_filter)]
-                
-                if status_filter:
-                    courses_df = courses_df[courses_df['status'].str.title().isin(status_filter)]
+            st.markdown("---")
 
-                for i in range(0, len(courses_df), 3):
-                    cols = st.columns(3, gap="medium")
-                    for j in range(3):
-                        idx = i + j
-                        if idx >= len(courses_df):
-                            break
-                        row = courses_df.iloc[idx]
-                        display_course_card(row, cols[j])
+            with st.expander("🔍 Filter options"):
+                status_filter = st.multiselect(
+                    "Status",
+                    ["Open", "Mixed", "Full"],
+                    default=["Open", "Mixed", "Full"],
+                )
+
+            if status_filter:
+                courses_df = courses_df[courses_df["status"].astype(str).str.title().isin(status_filter)]
+
+            for i in range(0, len(courses_df), 3):
+                cols = st.columns(3, gap="medium")
+                for j in range(3):
+                    idx = i + j
+                    if idx >= len(courses_df):
+                        break
+                    row = courses_df.iloc[idx]
+                    display_course_card(row, cols[j])
+
 
     with tab_search:
         st.subheader("🔍 Search all courses")
