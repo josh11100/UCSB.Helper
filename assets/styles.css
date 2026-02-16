@@ -1,0 +1,46 @@
+body {background:#f6f7fb;}
+
+.topbar {
+    position:fixed; top:0; left:0; right:0;
+    background:rgba(255,255,255,.9);
+    padding:12px 20px;
+    border-bottom:1px solid #e5e7eb;
+    z-index:1000;
+}
+
+.hero {
+    margin-top:70px;
+    padding:30px;
+    border-radius:20px;
+    background:linear-gradient(135deg,#003660,#0a84ff);
+    color:white;
+}
+
+.card {
+    background:white;
+    padding:16px;
+    border-radius:16px;
+    box-shadow:0 10px 25px rgba(0,0,0,.08);
+}
+
+.card-soft {
+    background:#eef3fb;
+    padding:16px;
+    border-radius:16px;
+}
+
+.section-gap {height:14px;}
+
+.pills {margin-top:10px;}
+.pill {
+    background:#e5e7eb;
+    padding:6px 10px;
+    border-radius:999px;
+    margin-right:6px;
+}
+
+.pill-gold {background:#fde68a;}
+
+.status-ok {color:#16a34a;font-weight:700;}
+.price-row {font-weight:800;margin-top:6px;}
+.small-muted {color:#6b7280;}
