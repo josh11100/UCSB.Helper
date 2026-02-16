@@ -1,136 +1,168 @@
 from __future__ import annotations
-from typing import Callable, Optional
+
 import os
+import textwrap
+from typing import Optional, Callable
+
 import pandas as pd
 import streamlit as st
 
-CSV_PATH = "iv_housing_listings.csv"
+
+def _dedent(s: str) -> str:
+    return textwrap.dedent(s).strip("\n")
+
 
 def housing_page(
     *,
     render_html: Callable[[str], None],
-    fallback_listing_uri: Optional[str] = None,
-    remote_fallback_url: Optional[str] = None,
-):
+    fallback_listing_uri: Optional[str],
+    remote_fallback_url: Optional[str],
+    csv_path: str = "housing_listings.csv",
+) -> None:
     render_html("""
     <div class="card-soft">
-      <div style="font-size:2.2rem; font-weight:950; letter-spacing:-0.02em;">🏠 Isla Vista Housing (CSV snapshot)</div>
+      <div style="font-size:1.35rem; font-weight:950; letter-spacing:-0.02em;">Isla Vista Housing (CSV snapshot)</div>
       <div class="small-muted">
-        Snapshot from ivproperties.com (2026–27). Filters below help you find fits by price, bedrooms, status, and pet policy.
+        Filters below help you find fits by price, bedrooms, status, and pet policy.
       </div>
     </div>
     <div class="section-gap"></div>
     """)
 
-    if not os.path.exists(CSV_PATH):
-        st.error(f"Missing {CSV_PATH}. Put it next to gauchoGPT.py")
+    if not os.path.exists(csv_path):
+        st.error(f"Missing housing CSV: {csv_path}")
+        st.caption("Put your file in the project root or update csv_path in gauchoGPT.py.")
         return
 
-    df = pd.read_csv(CSV_PATH)
+    df = pd.read_csv(csv_path)
+    df.columns = [c.strip().lower() for c in df.columns]
 
-    # safety: ensure columns exist
-    for col in ["street","unit","price","bedrooms","bathrooms","max_residents","pet_policy","status","utilities","avail_start","avail_end","listing_url","image_url"]:
-        if col not in df.columns:
-            df[col] = None
+    # normalize common column names
+    if "installment" in df.columns and "price" not in df.columns:
+        df["price"] = df["installment"]
+    if "price" not in df.columns:
+        df["price"] = None
 
-    df["price"] = pd.to_numeric(df["price"], errors="coerce")
-    df["bedrooms"] = pd.to_numeric(df["bedrooms"], errors="coerce")
-    df["bathrooms"] = pd.to_numeric(df["bathrooms"], errors="coerce")
-    df["max_residents"] = pd.to_numeric(df["max_residents"], errors="coerce")
-    df["status"] = df["status"].fillna("available").astype(str).str.lower().str.strip()
-    df["pet_policy"] = df["pet_policy"].fillna("").astype(str)
+    # best-effort numeric price for slider
+    df["price_num"] = (
+        df["price"].astype(str)
+        .str.replace(r"[^0-9.]", "", regex=True)
+        .replace("", pd.NA)
+        .astype(float)
+    )
 
-    # -------- Filters
-    c1, c2, c3, c4 = st.columns([1.6, 1, 1, 1])
+    def col_or_empty(name: str) -> pd.Series:
+        return df[name] if name in df.columns else pd.Series([""] * len(df))
+
+    df["address"] = col_or_empty("address").astype(str)
+    df["beds"] = col_or_empty("beds").astype(str)
+    df["baths"] = col_or_empty("baths").astype(str)
+    df["status"] = col_or_empty("status").astype(str)
+    df["pet_policy"] = col_or_empty("pet_policy").astype(str)
+    df["max_residents"] = col_or_empty("max_residents").astype(str)
+    df["availability"] = col_or_empty("availability").astype(str)
+    df["included_utilities"] = col_or_empty("included_utilities").astype(str)
+    df["image_url"] = col_or_empty("image_url").astype(str)
+    df["link"] = col_or_empty("link").astype(str)
+    df["unit"] = col_or_empty("unit").astype(str)
+
+    # ---------------------------
+    # Filters row (matches your screenshot vibe)
+    # ---------------------------
+    c1, c2, c3, c4 = st.columns([1.3, 1, 1, 1], gap="large")
+
+    price_max_default = float(df["price_num"].dropna().max()) if df["price_num"].notna().any() else 20000.0
 
     with c1:
-        max_price = int(df["price"].max()) if df["price"].notna().any() else 12000
-        price_limit = st.slider("Max monthly installment", 0, max_price, max_price, step=100)
-
+        price_max = st.slider("Max monthly installment", 0, int(price_max_default), int(price_max_default))
     with c2:
-        beds_choice = st.selectbox("Bedrooms", ["Any", "Studio", "1", "2", "3", "4", "5+"])
-
+        bed_opts = ["Any"] + sorted([b for b in df["beds"].unique() if b and b != "nan"])
+        beds = st.selectbox("Bedrooms", bed_opts, index=0)
     with c3:
-        status_choice = st.selectbox("Status filter", ["Any", "available", "processing", "leased"])
-
+        status_opts = ["Any"] + sorted([s for s in df["status"].unique() if s and s != "nan"])
+        status = st.selectbox("Status filter", status_opts, index=0)
     with c4:
-        pet_choice = st.selectbox("Pet policy", ["Any", "Pet friendly only", "No pets"])
+        pet_opts = ["Any"] + sorted([p for p in df["pet_policy"].unique() if p and p != "nan"])
+        pet = st.selectbox("Pet policy", pet_opts, index=0)
 
     filtered = df.copy()
-    filtered = filtered[(filtered["price"].isna()) | (filtered["price"] <= price_limit)]
+    if filtered["price_num"].notna().any():
+        filtered = filtered[(filtered["price_num"].isna()) | (filtered["price_num"] <= price_max)]
+    if beds != "Any":
+        filtered = filtered[filtered["beds"] == beds]
+    if status != "Any":
+        filtered = filtered[filtered["status"] == status]
+    if pet != "Any":
+        filtered = filtered[filtered["pet_policy"] == pet]
 
-    if beds_choice == "Studio":
-        filtered = filtered[(filtered["bedrooms"].fillna(0) == 0)]
-    elif beds_choice == "5+":
-        filtered = filtered[filtered["bedrooms"] >= 5]
-    elif beds_choice != "Any":
-        filtered = filtered[filtered["bedrooms"] == int(beds_choice)]
-
-    if status_choice != "Any":
-        filtered = filtered[filtered["status"] == status_choice]
-
-    if pet_choice == "Pet friendly only":
-        filtered = filtered[filtered["pet_policy"].str.contains("pet", case=False, na=False)]
-    elif pet_choice == "No pets":
-        filtered = filtered[filtered["pet_policy"].str.contains("no pets", case=False, na=False)]
-
-    render_html(f"""
-    <div class="card-soft small-muted">
-      Showing <strong>{len(filtered)}</strong> of <strong>{len(df)}</strong> units • Price ≤
-      <span class="pill pill-blue">${price_limit:,}</span>
-    </div>
-    <div class="section-gap"></div>
-    """)
+    st.caption(f"Showing {len(filtered)} of {len(df)} units • Price ≤ ${price_max:,}")
 
     with st.expander("📊 View table of filtered units"):
-        st.dataframe(filtered, use_container_width=True)
+        show_cols = [c for c in ["address", "unit", "price", "beds", "baths", "max_residents", "status", "pet_policy", "availability"] if c in filtered.columns]
+        st.dataframe(filtered[show_cols], use_container_width=True, hide_index=True)
 
-    # -------- Cards
-    for _, r in filtered.iterrows():
-        street = str(r["street"] or "").strip()
-        unit = str(r["unit"] or "").strip()
-        price = r["price"]
-        beds = r["bedrooms"]
-        baths = r["bathrooms"]
-        max_res = r["max_residents"]
-        pet = str(r["pet_policy"] or "").strip() or "Pet policy unknown"
-        status = str(r["status"] or "").strip()
-        utilities = str(r["utilities"] or "").strip()
-        a1 = str(r["avail_start"] or "").strip()
-        a2 = str(r["avail_end"] or "").strip()
+    st.divider()
 
-        # status line like screenshot
-        if status == "available":
-            status_line = f"Available {a1}–{a2} (applications open)".strip()
-            status_cls = "status-ok"
-        elif status == "processing":
-            status_line = "Processing applications"
-            status_cls = "status-warn"
-        else:
-            status_line = "Currently leased"
-            status_cls = "status-muted"
+    # ---------------------------
+    # Listing cards
+    # ---------------------------
+    for _, row in filtered.iterrows():
+        address = str(row.get("address", "")).strip()
+        unit = str(row.get("unit", "")).strip()
+        price = str(row.get("price", "")).strip()
+        beds_s = str(row.get("beds", "")).strip()
+        baths_s = str(row.get("baths", "")).strip()
+        max_res = str(row.get("max_residents", "")).strip()
+        pet_s = str(row.get("pet_policy", "")).strip()
+        availability = str(row.get("availability", "")).strip()
+        status_s = str(row.get("status", "")).strip()
+        utils = str(row.get("included_utilities", "")).strip()
+        link = str(row.get("link", "")).strip()
+        image_url = str(row.get("image_url", "")).strip()
 
-        price_txt = f"${int(price):,}/installment" if pd.notna(price) else "Price not listed"
-        ppp_txt = ""
-        if pd.notna(price) and pd.notna(max_res) and max_res > 0:
-            ppp_txt = f"≈ ${int(price/max_res):,} per person"
+        pills = []
+        if beds_s: pills.append(f"{beds_s} bed")
+        if baths_s: pills.append(f"{baths_s} bath")
+        if max_res: pills.append(f"Up to {max_res} residents")
+        if pet_s: pills.append(pet_s)
 
-        render_html(f"""
-        <div class="card">
-          <div class="listing-title">{street}, Isla Vista, CA</div>
-          <div class="listing-sub">{street} - {unit}</div>
+        # pick an image
+        img_src = ""
+        if image_url and image_url.lower() != "nan":
+            img_src = image_url
+        elif fallback_listing_uri:
+            img_src = fallback_listing_uri
+        elif remote_fallback_url:
+            img_src = remote_fallback_url
 
-          <div class="pills">
-            <span class="pill">{'Studio' if (pd.isna(beds) or beds == 0) else f'{int(beds)} bed'}</span>
-            <span class="pill">{'?' if pd.isna(baths) else int(baths)} bath</span>
-            <span class="pill">Up to {int(max_res) if pd.notna(max_res) else '?'} residents</span>
-            <span class="pill pill-gold">{pet}</span>
+        pills_html = "".join([f'<span class="pill">{p}</span>' for p in pills])
+
+        render_html(_dedent(f"""
+        <div class="listing-card">
+          <div class="listing-grid">
+            <div class="listing-main">
+              <div class="listing-title">{address}</div>
+              <div class="listing-sub">{address}{(" - " + unit) if unit else ""}</div>
+
+              <div class="listing-pills">{pills_html}</div>
+
+              <div class="listing-status">
+                <span class="ok">{availability}</span>
+              </div>
+
+              <div class="listing-price">
+                <span class="money">{price}</span>
+                {f'<span class="small-muted"> • {status_s}</span>' if status_s else ""}
+              </div>
+
+              {f'<div class="small-muted">Included utilities: {utils}</div>' if utils else ""}
+              {f'<div style="margin-top:10px;"><a class="link-btn" href="{link}" target="_blank">Open listing</a></div>' if link else ""}
+            </div>
+
+            <div class="listing-img">
+              {f'<img src="{img_src}" alt="listing" />' if img_src else ""}
+            </div>
           </div>
-
-          <div class="{status_cls}" style="margin-top:10px;">{status_line}</div>
-          <div class="price-row">{price_txt} <span class="small-muted">{(' · ' + ppp_txt) if ppp_txt else ''}</span></div>
-          {f"<div class='small-muted' style='margin-top:6px;'>Included utilities: {utilities}</div>" if utilities else ""}
         </div>
         <div class="section-gap"></div>
-        """)
-
+        """))
