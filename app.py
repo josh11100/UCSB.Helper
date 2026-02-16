@@ -6,27 +6,33 @@ import textwrap
 from typing import Dict, Any, Optional
 
 import streamlit as st
-import pandas as pd
 from urllib.parse import quote_plus
 
-from academics import academics_page
-from housing_page import housing_page
 from ui_components import topbar_html, hero_html, home_row_html
+from housing_page import housing_page
+from academics_enhanced import academics_page
 
 
 # ---------------------------
 # Page config
 # ---------------------------
-st.set_page_config(page_title="gauchoGPT — UCSB helper", page_icon="🧢", layout="wide")
-
+st.set_page_config(
+    page_title="gauchoGPT — UCSB helper",
+    page_icon="🧢",
+    layout="wide",
+)
 
 # ---------------------------
-# Render helpers (IMPORTANT)
+# Render helpers
 # ---------------------------
 def render_html(html: str) -> None:
-    # DO NOT strip per-line. That can break HTML/CSS blocks.
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
-
+    """
+    IMPORTANT:
+    - Dedent removes leading indentation that makes Markdown treat HTML as a code block.
+    - We do NOT want to strip every line; just dedent + keep structure.
+    """
+    s = textwrap.dedent(html).strip("\n")
+    st.markdown(s, unsafe_allow_html=True)
 
 def img_to_data_uri(path: str) -> Optional[str]:
     if not os.path.exists(path):
@@ -39,7 +45,6 @@ def img_to_data_uri(path: str) -> Optional[str]:
     mime = "jpeg" if ext in {"jpg", "jpeg"} else ext
     return f"data:image/{mime};base64,{b64}"
 
-
 def inject_css(css_path: str, *, bg_uri: Optional[str] = None) -> None:
     if not os.path.exists(css_path):
         st.error(f"Missing CSS file: {css_path}")
@@ -48,7 +53,6 @@ def inject_css(css_path: str, *, bg_uri: Optional[str] = None) -> None:
         css = f.read()
     css = css.replace("{{BG_URI}}", bg_uri or "")
     render_html(f"<style>{css}</style>")
-
 
 # ---------------------------
 # Assets
@@ -72,8 +76,7 @@ FALLBACK_LISTING_URI = (
     or img_to_data_uri("assets/ucsb_fallback.webp")
 )
 
-REMOTE_FALLBACK_IMAGE_URL = None
-
+REMOTE_FALLBACK_IMAGE_URL = None  # set to a public URL if you want
 
 # ---------------------------
 # State
@@ -82,13 +85,11 @@ NAV_LABELS = ["🏁 Home", "🏠 Housing", "📚 Academics", "👩‍🏫 Profes
 st.session_state.setdefault("main_nav", "🏁 Home")
 st.session_state.setdefault("sidebar_nav_open", False)
 
-
 # ---------------------------
 # Global UI
 # ---------------------------
 inject_css("assets/styles.css", bg_uri=BG_URI)
 render_html(topbar_html())
-
 
 # ---------------------------
 # Sidebar Nav
@@ -116,20 +117,17 @@ if st.session_state["sidebar_nav_open"]:
             st.rerun()
         st.sidebar.markdown("</div>", unsafe_allow_html=True)
 
-
 # ---------------------------
 # HOME
 # ---------------------------
 def _home_row(title: str, desc: str, btn_text: str, nav_target: str, thumb_uri: Optional[str] = None):
-    # IMPORTANT: must be render_html, NOT st.write/st.code
     render_html(home_row_html(title, desc, thumb_uri=thumb_uri))
     _, cbtn = st.columns([1, 0.25])
     with cbtn:
-        if st.button(btn_text, use_container_width=True, key=f"btn_{nav_target}"):
+        if st.button(btn_text, use_container_width=True):
             st.session_state["main_nav"] = nav_target
             st.rerun()
     render_html('<div class="section-gap"></div>')
-
 
 def home_page():
     render_html(hero_html())
@@ -138,7 +136,6 @@ def home_page():
     _home_row("👩‍🏫 Professors", "Fast RMP searches + department pages.", "Open Professors", "👩‍🏫 Professors", HOME_THUMB)
     _home_row("💸 Aid & Jobs", "FAFSA, work-study, UCSB aid + Handshake links.", "Open Aid & Jobs", "💸 Aid & Jobs", HOME_THUMB)
     _home_row("💬 Q&A", "Optional: wire to an LLM (OpenAI/Anthropic/local).", "Open Q&A", "💬 Q&A", HOME_THUMB)
-
 
 # ---------------------------
 # Professors
@@ -175,7 +172,6 @@ def profs_page():
 
     render_html("</div>")
 
-
 # ---------------------------
 # Aid & Jobs
 # ---------------------------
@@ -196,18 +192,24 @@ def aid_jobs_page():
     """)
 
     with st.expander("What is financial aid?"):
-        st.write("Financial aid reduces cost via grants, scholarships, work-study, and loans.")
+        st.write(
+            "Financial aid reduces your cost of attendance via grants, scholarships, work-study, and loans. "
+            "File the FAFSA (or CADAA if applicable) early each year and watch priority deadlines."
+        )
 
     with st.expander("What is work-study?"):
-        st.write("Work-study is need-based and lets you earn money via part-time jobs on/near campus.")
+        st.write(
+            "Work-study is a need-based program that lets you earn money via part-time jobs on or near campus. "
+            "Your award caps how much you can earn under work-study each year."
+        )
 
-    render_html('<div class="section-gap"></div><div class="card">')
+    render_html('<div class="section-gap"></div>')
+    render_html('<div class="card">')
     cols = st.columns(4)
     for i, (label, url) in enumerate(AID_LINKS.items()):
         with cols[i % 4]:
             st.link_button(label, url)
     render_html("</div>")
-
 
 # ---------------------------
 # Q&A
@@ -222,11 +224,12 @@ def qa_page():
     """)
 
     render_html('<div class="card">')
-    _ = st.text_area("Ask a UCSB question", placeholder="e.g., How do I switch into the STAT&DS major?")
+    prompt = st.text_area("Ask a UCSB question", placeholder="e.g., How do I switch into the STAT&DS major?")
     if st.button("Answer"):
-        st.info("Connect an API (OpenAI / Anthropic / local) here.")
+        st.info("Connect to an API (OpenAI / Anthropic / local) here.")
+        if prompt:
+            st.caption(prompt[:160] + ("..." if len(prompt) > 160 else ""))
     render_html("</div>")
-
 
 # ---------------------------
 # Routing
@@ -237,6 +240,7 @@ PAGES: Dict[str, Any] = {
         render_html=render_html,
         fallback_listing_uri=FALLBACK_LISTING_URI,
         remote_fallback_url=REMOTE_FALLBACK_IMAGE_URL,
+        csv_path="housing_listings.csv",   # <-- change to your actual housing CSV filename
     ),
     "📚 Academics": academics_page,
     "👩‍🏫 Professors": profs_page,
